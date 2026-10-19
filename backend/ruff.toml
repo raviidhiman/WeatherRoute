@@ -1,0 +1,6 @@
+line-length = 150
+[lint]
+select = ["E", "F", "I", "B", "S", "UP"]
+ignore = ["S101", "B905", "S105", "S311", "E501"]  # S105/S311 audited: dev-only key guarded by DEBUG; random only for retry jitter
+[lint.per-file-ignores]
+"tests/*" = ["S"]
