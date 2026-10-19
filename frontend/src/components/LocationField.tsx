@@ -46,7 +46,7 @@ export default function LocationField({ label, value, onChange, error, picking, 
   return (
     <Autocomplete
       value={value} options={options} loading={loading} filterOptions={(x) => x}
-      getOptionLabel={(o) => o.label} isOptionEqualToValue={(a, b) => a.lat === b.lat && a.lon === b.lon}
+      getOptionLabel={(o) => o.label} getOptionKey={(o) => `${o.label}|${o.lat}|${o.lon}`} isOptionEqualToValue={(a, b) => a.lat === b.lat && a.lon === b.lon}
       inputValue={text} onInputChange={(_, v, reason) => { setText(v); if (reason === "clear") onChange(null); }}
       onChange={(_, v) => onChange(v)}
       noOptionsText={failed ? "Location search is unavailable. Try again shortly." : text.trim().length < 3 ? "Type at least 3 characters" : "No US matches"}
