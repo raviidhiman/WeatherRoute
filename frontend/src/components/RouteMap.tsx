@@ -20,7 +20,7 @@ const BASEMAPS: Record<string, Basemap> = {
   plain: { label: "Plain (no tiles)" },
 };
 // Automatic fallback only between real tile providers; "Plain" is a last resort when both are unreachable.
-const NEXT_ON_FAIL: Record<string, string> = { osm: "streets", streets: "plain", esri: "osm" };
+const NEXT_ON_FAIL: Record<string, string> = { streets: "osm", osm: "plain", esri: "streets" };
 const TILE_TIMEOUT_MS = 12000;
 const TILE_ERRORS_BEFORE_FALLBACK = 10;
 const HEAT_COLORS = ["#86EFAC", "#FACC15", "#F97316", "#DC2626", "#5B2A86"];
@@ -55,7 +55,7 @@ export default function RouteMap({ routes, selectedId, hour, units, onSelect, me
   const spacing = useRef(40234);                     // metres between checkpoints (25 mi default)
   const tiles = useRef({ loaded: 0, errors: 0 });
   const dark = useTheme().palette.mode === "dark";
-  const [basemap, setBasemap] = useState("osm");
+  const [basemap, setBasemap] = useState("streets");
   const [ready, setReady] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const basemapRef = useRef(basemap);
