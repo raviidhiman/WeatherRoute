@@ -10,7 +10,7 @@ from urllib.parse import urlsplit
 import requests
 from django.conf import settings
 
-RETRY_STATUS = {429, 502, 503, 504}
+RETRY_STATUS = {429, 500, 502, 503, 504}  # GET only; bounded by `retries`
 
 
 class ProviderError(Exception):
@@ -23,12 +23,12 @@ def _delay(attempt: int, retry_after: str | None) -> float:
     return min(5.0, 0.4 * 2**attempt) * (0.5 + random.random())  # nosec B311 - jitter only
 
 
-def _check(url: str) -> dict:
+def _check(url: str, accept: str = "application/json") -> dict:
     parts = urlsplit(url)
     scheme_ok = parts.scheme == "https" or (settings.DEBUG and parts.scheme == "http")
     if not scheme_ok or parts.hostname not in settings.PROVIDER_HOSTS:
         raise ProviderError("blocked host")
-    return {"User-Agent": settings.PROVIDER_USER_AGENT, "Accept": "application/json"}
+    return {"User-Agent": settings.PROVIDER_USER_AGENT, "Accept": accept}
 
 
 def _read(r) -> bytes:
@@ -41,8 +41,8 @@ def _read(r) -> bytes:
     return b"".join(chunks)
 
 
-def get_json(url: str, params: dict, retries: int = 2, timeout: float | None = None, deadline: float | None = None):
-    headers = _check(url)
+def get_json(url: str, params: dict, retries: int = 2, timeout: float | None = None, deadline: float | None = None, accept: str = "application/json"):
+    headers = _check(url, accept)
     for attempt in range(retries + 1):
         per_try = timeout or settings.PROVIDER_TIMEOUT
         if deadline is not None:  # never run past the caller's overall time budget

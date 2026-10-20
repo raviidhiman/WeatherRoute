@@ -1,10 +1,10 @@
-"""End-to-end through the REAL HTTP path against local fake OSRM / Open-Meteo / Photon servers."""
+"""End-to-end through the REAL HTTP path against local fake OSRM / NWS / Photon servers."""
 
 import json
 import threading
 from datetime import UTC, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import urlsplit
 
 import pytest
 from django.core.cache import cache
@@ -45,7 +45,6 @@ class Fake(BaseHTTPRequestHandler):
 
     def do_GET(self):  # noqa: N802
         u = urlsplit(self.path)
-        q = {k: v[0] for k, v in parse_qs(u.query).items()}
         if u.path.startswith("/route/"):
             Fake.hits["osrm"] += 1
             routes = []
@@ -60,30 +59,33 @@ class Fake(BaseHTTPRequestHandler):
                     }
                 )
             self._send({"code": "Ok", "routes": routes})
-        elif u.path == "/forecast":
+        elif u.path.startswith("/points/"):
             if Fake.hits["wx"] == 0:  # first call: transient failure => exercises retry
                 Fake.hits["wx"] += 1
-                return self._send({"reason": "busy"}, 503)
+                return self._send({"title": "busy"}, 503)
             Fake.hits["wx"] += 1
-            lats, lons = q["latitude"].split(","), q["longitude"].split(",")
-            t0 = int((datetime.now(UTC) - timedelta(hours=24)).timestamp() // 3600) * 3600
-            times = [t0 + 3600 * i for i in range(400)]
-            blocks = []
-            for lon in lons:
-                wind = 38.0 if float(lon) < -108 else 10.0  # west part of the trip is windy
-                blocks.append(
-                    {
-                        "hourly": {
-                            "time": times,
-                            "wind_speed_10m": [wind] * 400,
-                            "rain": [0.0] * 400,
-                            "showers": [0.0] * 400,
-                            "snowfall": [0.0] * 400,
-                            "temperature_2m": [50.0] * 400,
-                        }
+            lat, lon = (float(v) for v in u.path.removeprefix("/points/").split(","))
+            self._send({"properties": {"gridId": "TST", "gridX": round((lon + 180) * 100), "gridY": round(lat * 100)}})
+        elif u.path.startswith("/gridpoints/TST/"):
+            Fake.hits["wx"] += 1
+            x, _ = u.path.removeprefix("/gridpoints/TST/").split(",")
+            lon = int(x) / 100 - 180
+            kmh = 38.0 * 1.609344 if lon < -108 else 10.0  # west part of the trip is windy (38 mph)
+            t0 = int((datetime.now(UTC) - timedelta(hours=6)).timestamp() // 3600) * 3600
+            hourly = lambda uom, v, dur="PT1H", step=1, n=200: {  # noqa: E731
+                "uom": uom,
+                "values": [{"validTime": datetime.fromtimestamp(t0 + 3600 * step * i, UTC).isoformat() + "/" + dur, "value": v} for i in range(n)],
+            }
+            self._send(
+                {
+                    "properties": {
+                        "windSpeed": hourly("wmoUnit:km_h-1", kmh),
+                        "quantitativePrecipitation": hourly("wmoUnit:mm", 0.0, "PT6H", 6, 40),
+                        "snowfallAmount": hourly("wmoUnit:mm", 0.0, "PT6H", 6, 40),
+                        "temperature": hourly("wmoUnit:degC", 10.0),
                     }
-                )
-            self._send(blocks if len(lats) > 1 else blocks[0])
+                }
+            )
         elif u.path == "/api":
             self._send(
                 {
@@ -108,7 +110,7 @@ def fake_server():
 def client(fake_server, settings, monkeypatch):
     cache.clear()
     Fake.hits.update(osrm=0, wx=0)
-    settings.OSRM_BASE_URL, settings.WEATHER_URL, settings.PHOTON_URL = fake_server, fake_server + "/forecast", fake_server + "/api"
+    settings.OSRM_BASE_URL, settings.WEATHER_URL, settings.PHOTON_URL = fake_server, fake_server, fake_server + "/api"
     settings.PROVIDER_HOSTS = {"127.0.0.1"}
     settings.DEBUG = True  # http:// allowed only in DEBUG; the guard itself is tested in test_weather_providers
     monkeypatch.setattr("services.http.time.sleep", lambda s: None)  # no real backoff delay in tests
@@ -163,7 +165,7 @@ def test_geocode_over_http(client):
 
 
 def test_provider_outage_never_becomes_low_risk(client, settings):
-    settings.WEATHER_URL = settings.WEATHER_URL.replace("/forecast", "/missing")  # 404 from provider
+    settings.WEATHER_URL = settings.WEATHER_URL + "/missing"  # 404 from provider
     d = client.post("/api/v1/routes/analyze/", body(), format="json").json()
     assert d["status"] == "partial" and d["recommendation"]["level"] == "provisional"
     assert all(c["risk"] is None for c in d["routes"][0]["checkpoints"])

@@ -87,7 +87,7 @@ CACHES = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"
 # --- Providers (free-first; operator-configured, never client-supplied) ---
 OSRM_BASE_URL = os.environ.get("OSRM_BASE_URL", "https://router.project-osrm.org").rstrip("/")
 PHOTON_URL = os.environ.get("PHOTON_URL", "https://photon.komoot.io/api/")
-WEATHER_URL = os.environ.get("WEATHER_URL", "https://api.open-meteo.com/v1/forecast")
+WEATHER_URL = os.environ.get("WEATHER_URL", "https://api.weather.gov")  # US National Weather Service, no key
 # Optional AI advisor: any OpenAI-compatible chat-completions provider. Off unless all three are set.
 AI_API_KEY = os.environ.get("AI_API_KEY", "")
 AI_BASE_URL = os.environ.get("AI_BASE_URL", "").rstrip("/")
@@ -101,7 +101,7 @@ PROVIDER_MAX_BYTES = 25 * 1024 * 1024
 # --- Resource limits ---
 MAX_CHECKPOINTS = 200  # per route
 MAX_CONCURRENT_ANALYSES = 4
-WEATHER_CONCURRENCY = 1
+WEATHER_CONCURRENCY = 8  # NWS needs two small requests per location; still bounded
 WEATHER_BUDGET_SECONDS = float(os.environ.get("WEATHER_BUDGET_SECONDS", "35"))
 WEATHER_TIMEOUT = float(os.environ.get("WEATHER_TIMEOUT", "15"))
 

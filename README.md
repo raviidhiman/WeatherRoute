@@ -7,7 +7,7 @@ Weather-aware truck routing for the United States. Enter an origin, destination,
 ```
 React (Vite, MUI, Leaflet)  --HTTPS/JSON-->  Django REST Framework (stateless)
                                                  api/        serializers, views, error handler
-                                                 services/   http (only outbound path) · routing (OSRM) · weather (Open-Meteo)
+                                                 services/   http (only outbound path) · routing (OSRM) · weather (US National Weather Service)
                                                              geocode (Photon) · geo (checkpoints) · eta · risk · ranking · analyze
 ```
 
@@ -20,7 +20,7 @@ React (Vite, MUI, Leaflet)  --HTTPS/JSON-->  Django REST Framework (stateless)
 |---|---|---|
 | Checkpoints | cumulative-distance array + `bisect` + interpolation | O(n + m log n) |
 | ETA | cumulative step durations + `bisect`, piecewise-linear | O(log n) per checkpoint |
-| Weather | set-dedupe on ~1 km grid, 40 locations/request, 4 threads, 30-min cache, 25 s budget | ≤ ⌈m/40⌉ calls |
+| Weather | set-dedupe on ~1 km, then on the NWS forecast cell (~2.5 km); 2 small requests per cell (grid lookup cached 30 days, forecast cached 30 min), 8 threads, one time budget | ≤ 2 × cells calls |
 | Risk | explicit comparisons, one pass over checkpoints | O(m) |
 | Ranking | tuple-key sort | O(r log r), r ≤ 3 |
 | Geometry for the browser | radial-distance thinning (analysis uses full geometry) | O(n) |
@@ -44,7 +44,7 @@ Independent distance / speed / temperature / weight / precipitation toggles plus
 |---|---|---|
 | Routing | OSRM public demo (`OSRM_BASE_URL`) | Car profile → **truck restrictions are not applied** (API warns). Demo server is best-effort and not for heavy use; self-host or swap the adapter for production. May return fewer than 3 alternatives; none are invented. |
 | Geocoding | Photon (komoot) | Fair-use; built for search-as-you-type. Debounced 400 ms, cached 24 h, US results only. |
-| Weather | Open-Meteo | Hourly wind (10 m sustained speed, not gusts), rain+showers, snowfall (in/hr), up to 16 days. **Free tier is non-commercial.** Cached 30 min. Precipitation probability is never substituted for intensity. |
+| Weather | US National Weather Service (`api.weather.gov`) | **Free, no key, US only** (public domain). Needs a contact User-Agent (`PROVIDER_USER_AGENT`). Rate limit is not published ("generous for typical use"). Hourly 10 m sustained wind (not gusts); precipitation and snowfall are **interval amounts (usually 6 h) averaged per hour**, so a short heavy burst is smoothed. Rain = liquid-equivalent total minus snow water equivalent (assumes 10:1); if either layer is missing, rain is Unknown, never guessed. Points outside NWS coverage are Unknown. Cached 30 min. Precipitation probability is never substituted. |
 | Radar | RainViewer public index | Optional overlay, fetched by the browser and validated (host must be *.rainviewer.com). Not verified from my sandbox; its free-tier terms and zoom limits may change. If it fails the toggle turns itself off. |
 | Basemap | OpenStreetMap, Esri streets, Esri satellite (raster tiles, no key) | Attribution shown by the map control. Auto-falls back OSM → Esri streets → Plain if tiles fail. |
 
@@ -100,7 +100,7 @@ cd frontend && npm ci && npm run dev        # http://localhost:5173 (Vite proxie
 cd backend  && pytest -q && ruff check . && bandit -q -r config api services && pip-audit -r requirements.txt
 cd frontend && npm test && npm run build && npm audit --omit=dev
 ```
-Backend (126 tests): every threshold boundary (wind 24.99/25/…/55, rain 0.099/0.10/…/1.001, snow 0.499/…/3.001, load 30,000/+ε/40,000/+ε), unknown ≠ Low, unit invariance, checkpoint spacing and final partial segment, ETA, ranking priority/ties/all-restricted/provisional, provider failure/malformed data, validation, SSRF host allowlist, oversize/NaN/unknown-field payloads, error leakage, rate limiting, and an end-to-end test over real HTTP against local fake OSRM/Open-Meteo/Photon servers (including a 503 retry and caching). Frontend (50 tests, incl. ribbon unit switching, navigation maths and radar-index validation): conversions, validation, map data, country dialog, form unit conversion.
+Backend (149 tests): every threshold boundary (wind 24.99/25/…/55, rain 0.099/0.10/…/1.001, snow 0.499/…/3.001, load 30,000/+ε/40,000/+ε), unknown ≠ Low, unit invariance, checkpoint spacing and final partial segment, ETA, ranking priority/ties/all-restricted/provisional, provider failure/malformed data, validation, SSRF host allowlist, oversize/NaN/unknown-field payloads, error leakage, rate limiting, and an end-to-end test over real HTTP against local fake OSRM/Open-Meteo/Photon servers (including a 503 retry and caching). Frontend (50 tests, incl. ribbon unit switching, navigation maths and radar-index validation): conversions, validation, map data, country dialog, form unit conversion.
 
 ## API
 `GET /api/v1/health/` · `GET /api/v1/weather/current/?lat=&lon=&load_lb=` (hourly model data at a point, any valid coordinate; unknown stays `null`) · `POST /api/v1/routes/explain/` `{analysis_id, units, ai}` (advisor; analysis facts expire after 30 min) · `GET /api/v1/geocode/?q=denver` → `{"results":[{"label","lat","lon"}]}`
